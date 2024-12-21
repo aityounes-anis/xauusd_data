@@ -2,6 +2,8 @@ import requests
 import mysql.connector
 from datetime import datetime
 from dotenv import load_dotenv
+import numpy as np
+import pandas as pd
 import os
 
 # Load environment variables
@@ -37,42 +39,89 @@ def fetch_data():
         print("Error fetching data:", data)
         return None
 
-# Store data in MySQL
+# Calculate indicators
+def calculate_indicators(data):
+    df = pd.DataFrame.from_dict(data, orient='index', dtype=float)
+    df.index = pd.to_datetime(df.index)  # Convert the index to datetime
+    df.sort_index(inplace=True)  # Sort data by date
+
+    # Rename columns to match database schema
+    df.rename(columns={
+        "1. open": "Open",
+        "2. high": "High",
+        "3. low": "Low",
+        "4. close": "Close"
+    }, inplace=True)
+
+    # Calculate indicators
+    df['Log_Returns'] = np.log(df['Close'] / df['Close'].shift(1))
+    df['Volatility_20d'] = df['Log_Returns'].rolling(window=20).std()
+    df['Daily_Range'] = df['High'] - df['Low']
+    df['SMA_20'] = df['Close'].rolling(window=20).mean()
+    df['Z_Score'] = (df['Close'] - df['SMA_20']) / df['Volatility_20d']
+
+    # Drop rows with NaN values (from rolling calculations)
+    df.dropna(inplace=True)
+
+    return df
+
+# Store Data with Indicators
 def store_data(data):
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
-    for date, stats in data.items():
+
+    # Ensure database table includes columns for indicators
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS xauusd_data (
+            date DATE PRIMARY KEY,
+            open DOUBLE,
+            high DOUBLE,
+            low DOUBLE,
+            close DOUBLE,
+            log_return DOUBLE,
+            volatility_20d DOUBLE,
+            daily_range DOUBLE,
+            z_score DOUBLE
+        );
+    """)
+    conn.commit()
+
+    for date, row in data.iterrows():
         try:
             cursor.execute("""
-                INSERT INTO xauusd (_date, _open, _high, _low, _close)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO xauusd_data (
+                    date, open, high, low, close, log_return, volatility_20d, daily_range, z_score
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
-                _open=%s, _high=%s, _low=%s, _close=%s
+                    open=VALUES(open),
+                    high=VALUES(high),
+                    low=VALUES(low),
+                    close=VALUES(close),
+                    log_return=VALUES(log_return),
+                    volatility_20d=VALUES(volatility_20d),
+                    daily_range=VALUES(daily_range),
+                    z_score=VALUES(z_score)
             """, (
-                datetime.strptime(date, "%Y-%m-%d"),
-                float(stats["1. open"]),
-                float(stats["2. high"]),
-                float(stats["3. low"]),
-                float(stats["4. close"]),
-                # Update values
-                float(stats["1. open"]),
-                float(stats["2. high"]),
-                float(stats["3. low"]),
-                float(stats["4. close"]),
+                date,
+                row['Open'], row['High'], row['Low'], row['Close'],
+                row['Log_Returns'], row['Volatility_20d'], row['Daily_Range'], row['Z_Score']
             ))
             conn.commit()
         except Exception as e:
             print(f"Error inserting data for {date}: {e}")
+
     cursor.close()
     conn.close()
 
 # Main execution
 if __name__ == "__main__":
     print("Fetching data from Alpha Vantage...")
-    data = fetch_data()
-    if data:
-        print("Data fetched successfully! Storing in database...")
-        store_data(data)
+    raw_data = fetch_data()
+    if raw_data:
+        print("Data fetched successfully! Calculating indicators...")
+        df_with_indicators = calculate_indicators(raw_data)
+        print("Indicators calculated. Storing in database...")
+        store_data(df_with_indicators)
         print("Data storage complete!")
     else:
         print("No data to store.")
