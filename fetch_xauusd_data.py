@@ -4,7 +4,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import os
 
-# Load .env file data
+# Load environment variables
 load_dotenv()
 
 # MySQL connection details
@@ -20,13 +20,14 @@ API_KEY = os.getenv("API_KEY")
 BASE_URL = "https://www.alphavantage.co/query"
 SYMBOL = "XAUUSD"
 
-# Function to fetch data
+# Fetch data from Alpha Vantage
 def fetch_data():
     params = {
         "function": "TIME_SERIES_DAILY",
         "symbol": SYMBOL,
         "market": "USD",
         "apikey": API_KEY,
+        "outputsize": "full"  # Fetch full historical data
     }
     response = requests.get(BASE_URL, params=params)
     data = response.json()
@@ -36,6 +37,7 @@ def fetch_data():
         print("Error fetching data:", data)
         return None
 
+# Store data in MySQL
 def store_data(data):
     conn = mysql.connector.connect(**db_config)
     cursor = conn.cursor()
@@ -52,7 +54,7 @@ def store_data(data):
                 float(stats["2. high"]),
                 float(stats["3. low"]),
                 float(stats["4. close"]),
-                float(stats.get("5. volume", 0)),  # Default to 0 if volume is missing
+                float(stats.get("5. volume", 0)),  # Volume might not be provided
                 # Update values
                 float(stats["1. open"]),
                 float(stats["2. high"]),
@@ -66,10 +68,13 @@ def store_data(data):
     cursor.close()
     conn.close()
 
-
-# Main script execution
+# Main execution
 if __name__ == "__main__":
+    print("Fetching data from Alpha Vantage...")
     data = fetch_data()
     if data:
+        print("Data fetched successfully! Storing in database...")
         store_data(data)
-        print("Data fetched and stored successfully!")
+        print("Data storage complete!")
+    else:
+        print("No data to store.")
