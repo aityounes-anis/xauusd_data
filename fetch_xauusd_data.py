@@ -44,23 +44,21 @@ def store_data(data):
     for date, stats in data.items():
         try:
             cursor.execute("""
-                INSERT INTO xauusd (_date, _open, _high, _low, _close, _volume)
+                INSERT INTO xauusd (_date, _open, _high, _low, _close)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
-                _open=%s, _high=%s, _low=%s, _close=%s, _volume=%s
+                _open=%s, _high=%s, _low=%s, _close=%s
             """, (
                 datetime.strptime(date, "%Y-%m-%d"),
                 float(stats["1. open"]),
                 float(stats["2. high"]),
                 float(stats["3. low"]),
                 float(stats["4. close"]),
-                float(stats.get("5. volume", 0)),  # Volume might not be provided
                 # Update values
                 float(stats["1. open"]),
                 float(stats["2. high"]),
                 float(stats["3. low"]),
                 float(stats["4. close"]),
-                float(stats.get("5. volume", 0)),
             ))
             conn.commit()
         except Exception as e:
